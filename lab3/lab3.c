@@ -1,25 +1,47 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/printk.h>
 #include <linux/proc_fs.h>
 #include <linux/uaccess.h>
-#include <linux/cpu.h>
-#include <linux/version.h>
+#include <linux/timekeeping.h>
+#include <linux/time.h>
 
-#define procfs_name "tsu"
+#define PROCFS_NAME "tsu"
 static struct proc_dir_entry *our_proc_file = NULL;
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
+static int days_until_deadline(void) {
+    struct timespec64 now;
+    struct tm tm_now, tm_deadline;
+    long seconds_until_deadline;
+
+    // Получаем текущее время
+    ktime_get_real_ts64(&now);
+
+    // Заполняем структуру tm для текущего времени
+    time64_to_tm(now.tv_sec, 0, &tm_now);
+
+    // Заполняем структуру tm для дедлайна (Новый год)
+    tm_deadline = (struct tm){0}; // Обнуляем остальные поля
+    tm_deadline.tm_year = tm_now.tm_year + 1; // Год следующего Нового года
+    tm_deadline.tm_mon = 0; 
+    tm_deadline.tm_mday = 1; 
+
+    // Получаем количество секунд до дедлайна
+    seconds_until_deadline = mktime64(tm_deadline.tm_year + 1900, tm_deadline.tm_mon + 1, tm_deadline.tm_mday,
+                                      tm_deadline.tm_hour, tm_deadline.tm_min, tm_deadline.tm_sec) - now.tv_sec;
+
+    // Преобразуем секунды в дни
+    return seconds_until_deadline / (24 * 60 * 60);
+}
+
 static ssize_t procfile_read(struct file *file, char __user *buffer, size_t count, loff_t *offset)
-#else
-static int procfile_read(struct file *file, char *buffer, size_t length, loff_t *offset)
-#endif
 {
     int ret = 0;
-    char s[40] = "2 part 3 laboratory\n";
-    size_t len = strlen(s);
+    char s[50];
+    size_t len;
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
+    int days = days_until_deadline();
+    len = snprintf(s, sizeof(s), "Days until Deadline: %d\n", days);
+
     if (*offset >= len) {
         return 0;
     }
@@ -33,31 +55,18 @@ static int procfile_read(struct file *file, char *buffer, size_t length, loff_t 
         *offset += count;
         ret = count;
     }
-#else
-    if (copy_to_user(buffer, s, strlen(s)) != 0) {
-        ret = -EFAULT;
-    } else {
-        ret = strlen(s);
-    }
-#endif
 
-    pr_info("procfile_read %s successfully\n", procfs_name);
+    pr_info("procfile_read %s successfully\n", PROCFS_NAME);
     return ret;
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
 static const struct proc_ops proc_file_fops = {
     .proc_read = procfile_read,
 };
-#else
-static const struct file_operations proc_file_fops = {
-    .read = procfile_read,
-};
-#endif
 
 static int __init tsulab_init(void)
 {
-    our_proc_file = proc_create(procfs_name, 0644, NULL, &proc_file_fops);
+    our_proc_file = proc_create(PROCFS_NAME, 0644, NULL, &proc_file_fops);
 
     if (our_proc_file == NULL) {
         pr_err("Failed to create proc file\n");
