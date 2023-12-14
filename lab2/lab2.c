@@ -94,6 +94,7 @@ int main(int argc, char *argv[]) {
                 if (wasSigHup) {
                     printf("Received SIGHUP signal\n");
                     wasSigHup = 0;
+                    continue;
                 }
             }else {
                 perror("pselect error");
